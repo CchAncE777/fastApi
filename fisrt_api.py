@@ -1,4 +1,5 @@
 # python -m uvicorn fisrt_api:app --reload
+# https://localhost:8443/
 
 from datetime import datetime, timedelta
 
@@ -182,8 +183,8 @@ if __name__ == "__main__":
     key_path, cert_path = generate_self_signed_cert()
     uvicorn.run(
         app,
-        host="10.100.0.2",
-        port=443,
+        host="0.0.0.0",
+        port=8443,
         ssl_keyfile=key_path,
         ssl_certfile=cert_path,
     )
