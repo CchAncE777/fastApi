@@ -196,19 +196,3 @@ def forbidden_page(request: Request):
         name="403.html",
         status_code=403,
     )
-
-@app.get('/news', response_class=HTMLResponse)
-def news_page(request: Request):
-    return templates.TemplateResponse(request=request, name='news.html')
-
-@app.post('/news')
-def news(request: Request):
-    pass
-
-@app.get('/news_list', response_class=HTMLResponse)
-def news_page(request: Request, username: str = Form(...)):
-    return templates.TemplateResponse(request=request, name='news_list.html', context={'news': [], 'user': username})
-
-@app.post('/news_list')
-def news(request: Request):
-    pass
