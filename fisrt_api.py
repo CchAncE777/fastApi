@@ -1,108 +1,99 @@
-# python -m uvicorn fisrt_api:app --reload
-# https://localhost:8443/
+# python -m uvicorn fisrt_api:app --reload ПОКА НЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕЕ
+# & "C:\Program Files\Git\usr\bin\openssl.exe" req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365
+# ВЕРХНЮЮ СТРОЧКУ В БАШ
+# uvicorn main:app --reload --ssl-keyfile=key.pem --ssl-certfile=cert.pem
+# python -m uvicorn very_first:app --reload --ssl-keyfile=key.pem --ssl-certfile=cert.pem
+from datetime import datetime
 
-from datetime import datetime, timedelta
-
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, File, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-from cryptography import x509
-from cryptography.x509.oid import NameOID
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import Match
 import pandas as pd
 import hashlib
-import datetime
-import tempfile
-import uvicorn
+import shutil
+import uuid
+import os
 
-SESSION_LIFETIME = timedelta(minutes=3)
+SESSION_LIFETIME = 60
+white_urls = ["/", "/login", "/logout", "/register"]
+AVATAR_DIR = "images"
+os.makedirs(AVATAR_DIR, exist_ok=True)
+ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
+
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
-def generate_self_signed_cert():
-    # Генерация ключа
-    key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048,
-    )
-
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COUNTRY_NAME, "BY"),
-        x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Minsk"),
-        x509.NameAttribute(NameOID.LOCALITY_NAME, "Minsk"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "FastAPI In-Memory"),
-        x509.NameAttribute(NameOID.COMMON_NAME, "666"),
-    ])
-
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.datetime.now())
-        .not_valid_after(datetime.datetime.now() + datetime.timedelta(days=365))
-        .add_extension(
-            x509.SubjectAlternativeName([x509.DNSName("localhost")]),
-            critical=False,
-        )
-        .sign(key, hashes.SHA256())
-    )
-
-    # Сохраняем во временные файлы
-    key_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
-    cert_file = tempfile.NamedTemporaryFile(delete=False, suffix=".pem")
-
-    key_file.write(
-        key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-    )
-    key_file.close()
-
-    cert_file.write(cert.public_bytes(serialization.Encoding.PEM))
-    cert_file.close()
-
-    return key_file.name, cert_file.name
 
 app = FastAPI()
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
-app.add_middleware(SessionMiddleware, secret_key="krivobotkrivobotkrivobot")
 
-white_urls = ["/", "/login", "/logout", "/register"]
+app.mount("/images", StaticFiles(directory="images"), name="images")
+
+@app.middleware("http")
+async def session_activity_middleware(request: Request, call_next):
+    path = request.url.path
+
+    if path.startswith("/static") or path in white_urls or request.url.path.startswith("/sources"):
+        return await call_next(request)
+
+    route_exists = False
+    for route in app.routes:
+        match, _ = route.matches(request.scope)
+        if match == Match.FULL:
+            route_exists = True
+            break
+    if not route_exists:
+        return await call_next(request)
+
+    if not request.session.get("username"):
+        return templates.TemplateResponse(
+            request=request,
+            name="403.html",
+            context={"detail": "Доступ запрещен или время сессии истекло."},
+            status_code=403,
+        )
+
+    request.session["last_activity"] = str(datetime.now())
+    print(datetime.now())
+
+    return await call_next(request)
+
+app.add_middleware(SessionMiddleware,
+                    secret_key="krivobotkrivobotkrivobot",
+                    max_age=SESSION_LIFETIME, 
+                    https_only=True)
+
 
 # Маршрутизация приложения
-@app.get("/", response_class=HTMLResponse) # перехват адреса http://localhost:8000/
+@app.get("/", response_class=HTMLResponse) # перехват адреса https://localhost:8000/
 def main_page(request: Request):
     return templates.TemplateResponse(request=request, name ="based_main.html")
 
 @app.get("/home", response_class=HTMLResponse)
 def home_page(request: Request):
-    print(datetime.now(), request.session.get('session_starttime'))
-    if datetime.now() - datetime.fromisoformat(request.session.get('session_starttime')) >= SESSION_LIFETIME:
-        # грохнуть сессию
-        request.session.clear()
-        return RedirectResponse(url="/login", status_code=302)        
-    else:
-        request.session['session_starttime'] = str(datetime.now())
+    # print(datetime.now(), request.session.get('session_starttime'))
     username = request.session.get('username')
     password_hash = request.session.get('password_hash')
+    df = pd.read_csv('krivousers.csv')
+    users_new = df.to_dict(orient="records")
+    id = request.session.get('user_unique_id')
+    avatar_path = users_new[id]['avatar']
     if not username:
-        return RedirectResponse(url="/login", status_code=302)
+        return RedirectResponse(url="/403", status_code=302)
+
     return templates.TemplateResponse(request=request, 
                                       name="home.html", 
                                       context={'username': username, 
-                                               'password_hash': password_hash})
+                                               'password_hash': password_hash,
+                                               'avatar': avatar_path})
 
 
-users = [{'username' : 'admin', 'password' : hash_password('1111' + 'admin')}]
+users = [{'username' : 'admin', 'password' : hash_password('1111' + 'admin'), 'avatar' : 'images/default.png', 'user_unique_id' : 0}]
 df = pd.DataFrame(users)
 df.to_csv("krivousers.csv", index=False, encoding="utf-8")
 
@@ -114,11 +105,12 @@ def register_page(request: Request):
 @app.post("/register")
 def register(request: Request,
             password: str = Form(...), 
-            username: str = Form(...)):
+            username: str = Form(...),
+            avatar: UploadFile | None = File(None)):
     res = ''
     df = pd.read_csv('krivousers.csv')
     users_new = df.to_dict(orient="records")
-    print(users_new)
+    # print(users_new)
     for i in users_new:
         if username == i['username']:
             res = 'ужес exist'
@@ -127,12 +119,31 @@ def register(request: Request,
         return templates.TemplateResponse(name="register.html",
                                         request=request, 
                                         context={"error": res})
+    if not avatar or not avatar.filename:
+        return templates.TemplateResponse(
+            "register.html",
+            {"request": request, "error": "Пожалуйста, выберите фото профиля."}
+        )
+
+    if avatar.content_type not in ALLOWED_TYPES:
+        return templates.TemplateResponse(
+            "register.html",
+            {"request": request, "error": "Неверный формат картинки. Разрешены JPG, PNG и WEBP."}
+        )
     else:
-        new_user = pd.DataFrame([{'username' : username, 'password' : hash_password(password + username)}])
+        ext = os.path.splitext(avatar.filename)[1]
+        new_filename = f'{uuid.uuid4()}{ext}'
+        file_path = os.path.join(AVATAR_DIR, new_filename)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(avatar.file, buffer)
+        avatar_url = f"/images/{new_filename}"
+
+        new_user = pd.DataFrame([{'username' : username, 'password' : hash_password(password + username), 'avatar' : avatar_url, 'unique_id' : len(users_new)}])
         new_user.to_csv('krivousers.csv', mode="a", index=False, header=False, encoding="utf-8")
         request.session['username'] = username
         request.session['password_hash'] = hash_password(password + username)
         request.session['session_starttime'] = str(datetime.now())
+        request.session['user_unique_id'] = len(users_new)
         response = RedirectResponse(url=f"/home", status_code=302)
         return response
     
@@ -152,39 +163,52 @@ def login(request: Request,
     for i in users_new:
         if username == i['username'] and hash_password(password + username) == i['password'] :
             res = 'успешно'
+            id = i['user_unique_id']
             break
 
     if res == 'успешно':
         request.session["username"] = username
         request.session['password_hash'] = hash_password(password + username)
         request.session['session_starttime'] = str(datetime.now())
+        request.session['user_unique_id'] = id
         response = RedirectResponse(url=f"/home", status_code=302)
         return response
     else:
-        return templates.TemplateResponse({"request": request, 
-                                        "error": "Неверный пароль или логин"},
-                                        name="login.html")
+        return templates.TemplateResponse(request=request,
+                                          name="login.html",
+                                        context={"error": "Неверный пароль или логин"},
+                                        )
 
 
 
-@app.get("/404", response_class=HTMLResponse)
-def _404_page(request: Request):
-    return templates.TemplateResponse(request=request, name="404.html")
-
-@app.get('/403', response_class=HTMLResponse)
-def _403_page(request: Request):
-    return templates.TemplateResponse(request=request, name='403.html')
-
-@app.get("/")
-def read_root():
-    return {"message": "Hello over HTTPS (in-memory cert)!"}
-
-if __name__ == "__main__":
-    key_path, cert_path = generate_self_signed_cert()
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8443,
-        ssl_keyfile=key_path,
-        ssl_certfile=cert_path,
+@app.exception_handler(404)
+def not_found_exception_handler(request: Request, exc: StarletteHTTPException):
+    return templates.TemplateResponse(
+        request=request,
+        name="404.html",
+        status_code=404,
     )
+
+@app.get("/403", response_class=HTMLResponse)
+def forbidden_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="403.html",
+        status_code=403,
+    )
+
+@app.get('/news', response_class=HTMLResponse)
+def news_page(request: Request):
+    return templates.TemplateResponse(request=request, name='news.html')
+
+@app.post('/news')
+def news(request: Request):
+    pass
+
+@app.get('/news_list', response_class=HTMLResponse)
+def news_page(request: Request, username: str = Form(...)):
+    return templates.TemplateResponse(request=request, name='news_list.html', context={'news': [], 'user': username})
+
+@app.post('/news_list')
+def news(request: Request):
+    pass
