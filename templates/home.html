@@ -12,14 +12,7 @@
     <p><b>Хэшированный пароль:</b> {{ password_hash }}</p>
     <button onclick="toggleTheme()">Сменить тему</button>
     <img src="{{ avatar }}" alt="" style="width: 150px; height: 150px; object-fit: cover; border-radius: 50%;">
-    <label for="role">Выберите роль:</label><br>
-    <select id="role" name="role" required>
-        <option value="" disabled selected>-- Выберите роль --</option>
-        <option value="user">Читатель</option>
-        <option value="moderator">Модератор</option>
-        <option value="admin">Админ</option>
-    </select>
-</div>
+</div> 
 <script>
 function toggleTheme() {
     document.body.classList.toggle("dark");

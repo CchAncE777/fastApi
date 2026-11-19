@@ -2,7 +2,7 @@
 # & "C:\Program Files\Git\usr\bin\openssl.exe" req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365
 # ВЕРХНЮЮ СТРОЧКУ В БАШ
 # uvicorn main:app --reload --ssl-keyfile=key.pem --ssl-certfile=cert.pem
-# python -m uvicorn very_first:app --reload --ssl-keyfile=key.pem --ssl-certfile=cert.pem
+# python -m uvicorn fisrt_api:app --reload --ssl-keyfile=key.pem --ssl-certfile=cert.pem
 from datetime import datetime
 
 from fastapi import FastAPI, Form, Request, File, UploadFile
@@ -106,7 +106,7 @@ def register_page(request: Request):
 def register(request: Request,
             password: str = Form(...), 
             username: str = Form(...),
-            avatar: UploadFile | None = File(None)):
+            avatar: UploadFile = File(...)):
     res = ''
     df = pd.read_csv('krivousers.csv')
     users_new = df.to_dict(orient="records")
@@ -119,7 +119,7 @@ def register(request: Request,
         return templates.TemplateResponse(name="register.html",
                                         request=request, 
                                         context={"error": res})
-    if not avatar or not avatar.filename:
+    if not avatar.filename:
         return templates.TemplateResponse(
             "register.html",
             {"request": request, "error": "Пожалуйста, выберите фото профиля."}
